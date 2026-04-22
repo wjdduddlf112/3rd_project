@@ -92,16 +92,22 @@ def get_detailed_restaurants(code_list: Union[str, list]) -> list:
         cat_df = query_sender(f"SELECT c.name FROM category c JOIN rel_restaurant_category rel ON c.category_code = rel.category_code WHERE rel.restaurant_code = '{res_code}'")
         tag_df = query_sender(f"SELECT t.name FROM tag t JOIN rel_restaurant_tag rel ON t.tag_code = rel.tag_code WHERE rel.restaurant_code = '{res_code}'")
         menu_df = query_sender(f"SELECT name, price, description FROM menu WHERE restaurant_code = '{res_code}'")
+        review_df = query_sender(f"SELECT score, content, taste_level, price_level, service_level FROM review WHERE restaurant_code = '{res_code}'")
 
         results.append({
             "restaurant_code": res_code,
             "name": row["name"],
             "img_link": row.get("img_link", ""),
+            "region": row.get("region", ""),
             "address": row.get("address", ""),
+            "tel_no": row.get("tel_no", ""),
             "lat": row["lat"],
             "lng": row["lng"],
+            "open_time": row.get("open_time", ""),
+            "close_time": row.get("close_time", ""),
             "category": cat_df["name"].tolist() if not cat_df.empty else [],  
             "tags": tag_df["name"].tolist() if not tag_df.empty else [],            
-            "menus": menu_df.to_dict('records') if not menu_df.empty else []
+            "menus": menu_df.to_dict('records') if not menu_df.empty else [],
+            "reviews": review_df.to_dict('records') if not review_df.empty else []
         })
     return results

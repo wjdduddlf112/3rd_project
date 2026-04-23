@@ -22,9 +22,8 @@ class GraphState(TypedDict, total=False):
     route: Literal["embedding", "fixed"]
     route_payload: dict[str, str]
 
-    # utils(db connector) 반환값: list[dict]
     restaurant_list: list[dict[str, Any]]
-
+    used_restaurant_list: list[dict[str, Any]]
     answer: str
 
 
@@ -32,13 +31,6 @@ _graph = None
 
 
 def _normalize_restaurant_list(result: Any) -> list[dict[str, Any]]:
-    """
-    utils 함수 반환값을 restaurant_list 형태로 정규화한다.
-
-    허용:
-    1) list[dict]
-    2) {"restaurant_list": list[dict]}  # 혹시 utils 쪽이 나중에 이렇게 바뀌어도 방어
-    """
     if result is None:
         return []
 
@@ -82,7 +74,10 @@ def connector_search_node(state: GraphState) -> GraphState:
         raise ValueError(f"알 수 없는 route입니다: {route}")
 
     restaurant_list = _normalize_restaurant_list(raw_result)
-    return {"restaurant_list": restaurant_list}
+
+    return {
+        "restaurant_list": restaurant_list,
+    }
 
 
 def generate_node(state: GraphState) -> GraphState:
@@ -96,7 +91,7 @@ def generate_node(state: GraphState) -> GraphState:
         "restaurant_count": len(restaurant_list)
     }
 
-    answer = generate_response(
+    gen_result = generate_response(
         question=question,
         restaurant_list=restaurant_list,
         route=route,
@@ -104,8 +99,11 @@ def generate_node(state: GraphState) -> GraphState:
         route_payload=route_payload,
         connector_meta=connector_meta,
     )
-    return {"answer": answer}
 
+    return {
+        "answer": gen_result.get("answer", ""),
+        "used_restaurant_list": gen_result.get("used_restaurant_list", []),
+    }
 
 def route_condition(state: GraphState) -> str:
     return state["route"]
@@ -165,16 +163,12 @@ def run_qa(
         "route": result.get("route"),
         "route_payload": result.get("route_payload", {}),
         "restaurant_list": result.get("restaurant_list", []),
+        "used_restaurant_list": result.get("used_restaurant_list", []),
         "answer": result.get("answer", ""),
     }
 
 
 def main() -> None:
-    """CLI 대화형 테스트 진입점.
-
-    빈 Enter로 종료.
-    route와 route_payload를 바탕으로 utils(db_fixed_search / db_embedding_search)를 직접 호출한다.
-    """
     print("=" * 60)
     print("맛집 추천 CLI 테스트 (빈 Enter 입력시 종료)")
     print("=" * 60)
@@ -197,6 +191,9 @@ def main() -> None:
 
         print("\n[답변]")
         print(result["answer"])
+
+        print("\n[restaurant list]")
+        print(result["used_restaurant_list"])
 
 
 if __name__ == "__main__":

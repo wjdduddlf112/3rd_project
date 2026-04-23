@@ -38,7 +38,7 @@ def generate_response(
     session_id: str = "default",
     route_payload: dict[str, Any] | None = None,
     connector_meta: dict[str, Any] | None = None,
-) -> str:
+) -> dict[str, Any]:
     prompt_rules = load_system_prompt()
     history = _SESSION_MESSAGES.setdefault(session_id, [])
 
@@ -82,4 +82,7 @@ def generate_response(
     history.append(HumanMessage(content=question))
     history.append(AIMessage(content=response))
 
-    return response
+    return {
+        "answer": response,
+        "used_restaurant_list": retrieved_restaurants,
+    }

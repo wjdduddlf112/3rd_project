@@ -6,7 +6,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import database.sql.utils as dbconnector
-
+import json
+from src.pipeline import run_qa
 ######################################################################
 # 변수 설정
 ######################################################################
@@ -65,6 +66,13 @@ if lat not in st.session_state:
 ######################################################################
 # 함수 선언
 ######################################################################
+
+def call_agent(user_input: str, session_id: str = "test_session") -> tuple[str, list[dict]]:
+    result = run_qa(
+        question=user_input,
+        session_id=session_id,
+    )
+    return result["answer"], result["used_restaurant_list"]
 
 # 검색 결과 세션 저장
 def update_search_result(rlist:list[dict]):
@@ -298,11 +306,11 @@ def print_chat():
 # 새 채팅 출력 함수
 def add_chat(instr:str):
     st.session_state[session_chat].append({"role":"user", "content":instr})
-    
-    #<test> 답변 받아오기
-    st.session_state[session_chat].append({"role":"assistant", "content":"AI 반응"})
 
-    # update_search_result 호출
+    response, restaurant_datas = call_agent(instr)
+
+    st.session_state[session_chat].append({"role":"assistant", "content":response})
+    update_search_result(restaurant_datas)
 
 # 지도 출력 함수
 def render_kakao_map(lat, lon, markers=None):

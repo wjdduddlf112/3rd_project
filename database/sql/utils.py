@@ -154,38 +154,73 @@ def get_detailed_restaurants(code_list: Union[str, list]) -> list:
         })
     return results
 
+def _compress_list(ls: list) -> list:
+    return list(dict.fromkeys(ls))
+
+
+def _split_by_prefix(codes: list[str], prefix: str) -> tuple[list[str], list[str]]:
+    matched = [c for c in codes if c.startswith(prefix)]
+    unmatched = [c for c in codes if not c.startswith(prefix)]
+    return matched, unmatched
+
+
 def search_table(table_name: str, codes: list[str]) -> list[str]:
-    if len(codes) == 0:
+    if not codes:
         return []
 
     match table_name:
         case "category":
             return search_table("rel_restaurant_category", codes)
+
         case "rel_restaurant_category":
             return _table_jump("rel_restaurant_category", "category_code", "restaurant_code", codes)
+
         case "food":
             return search_table("menu", codes)
+
         case "menu":
-            return _table_jump("menu", "menu_code", "restaurant_code", codes) if codes[0][:3] == "MEN" else _table_jump("menu", "food_code", "restaurant_code", codes)
+            menu_codes, food_codes = _split_by_prefix(codes, "MEN")
+            buff = []
+
+            if menu_codes:
+                buff.extend(_table_jump("menu", "menu_code", "restaurant_code", menu_codes))
+            if food_codes:
+                buff.extend(_table_jump("menu", "food_code", "restaurant_code", food_codes))
+
+            return _compress_list(buff)
+
         case "tag":
             buff = []
-            for t in codes:
-                buff.extend(search_table("rel_restaurant_tag", [t, ]))
-                buff.extend(search_table("rel_review_tag", [t, ]))
-            return  _compress_list(buff)
+            buff.extend(search_table("rel_restaurant_tag", codes))
+            buff.extend(search_table("rel_review_tag", codes))
+            return _compress_list(buff)
+
         case "rel_restaurant_tag":
             return _table_jump("rel_restaurant_tag", "tag_code", "restaurant_code", codes)
+
         case "rel_review_tag":
-            qlist = _table_jump("rel_review_tag", "tag_code", "review_code", codes)
-            return search_table("review", qlist)
+            review_codes = _table_jump("rel_review_tag", "tag_code", "review_code", codes)
+            return search_table("review", review_codes)
+
         case "users":
             return search_table("review", codes)
+
         case "review":
-            return _table_jump("review", "review_code", "restaurant_code", codes) if codes[0][:3] == "REV" else _table_jump("review", "user_code", "restaurant_code", codes)
+            review_codes, user_codes = _split_by_prefix(codes, "REV")
+            buff = []
+
+            if review_codes:
+                buff.extend(_table_jump("review", "review_code", "restaurant_code", review_codes))
+            if user_codes:
+                buff.extend(_table_jump("review", "user_code", "restaurant_code", user_codes))
+
+            return _compress_list(buff)
+
         case "restaurant":
             return codes
+
         case _:
-            raise Exception("no such table exception")
+            raise ValueError(f"No such table: {table_name}")
 
 def _table_jump(table_name:str, base_column:str, target_column:str, ls:list[str]) -> list[str]:
     q = _table_jump_query(table_name, base_column, target_column, ls)
@@ -193,21 +228,20 @@ def _table_jump(table_name:str, base_column:str, target_column:str, ls:list[str]
     return _compress_list(list(res))
 
 # table_name에서 base_column 값이 ls인 튜플의 target_column 값을 ls 순서에 맞게 뽑아주는 쿼리
-def _table_jump_query(table_name:str, base_column:str, target_column:str, ls:list[str]) -> str:
-    return f"""SELECT {target_column}
-FROM {table_name}
-WHERE {base_column} IN ({", ".join(["'" + l + "'" for l in ls])})
-GROUP BY {base_column}
-ORDER BY MIN(CASE {base_column}
-{"\t\n".join(["WHEN '" + ls[i] + f"' THEN {i + 1}" for i in range(len(ls))])}
-END);"""
+def _table_jump_query(table_name: str, base_column: str, target_column: str, ls: list[str]) -> str:
+    values = ", ".join([f"'{v}'" for v in ls])
+    order_case = "\n".join(
+        [f"WHEN '{v}' THEN {i + 1}" for i, v in enumerate(ls)]
+    )
 
-def _compress_list(ls:list) -> list:
-    buff = []
-    for line in ls:
-        if line not in buff:
-            buff.append(line)
-    return buff
+    return f"""
+SELECT {target_column}
+FROM {table_name}
+WHERE {base_column} IN ({values})
+ORDER BY CASE {base_column}
+{order_case}
+END;
+"""
 
 fixed_search_keys = ["restaurant", "menu", "user"]
 def db_fixed_search(indict: dict, db_path: str = DB_PATH):

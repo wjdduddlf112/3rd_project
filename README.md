@@ -45,9 +45,9 @@
 ## 1. Overview
 
 ### 1.1 소개
-**PICKLE**은 "신대방삼거리" 한 동네의 식당 데이터를 깊게 파고들어, 사용자의 자연어 질문 한 줄로 **분위기 · 메뉴 · 가성비 · 상황**에 맞는 식당 **한 곳**을 골라주는 AI 맛집 챗봇입니다.
+**PICKLE**은 신대방삼거리 지역의 식당 데이터를 기반으로, 사용자의 자연어 질의에 대해 **분위기·메뉴·가성비·상황** 조건을 반영한 식당 **1곳**을 추천하는 AI 맛집 챗봇입니다.
 
-다이닝코드(diningcode.com)에서 직접 크롤링한 식당 100곳, 메뉴 2,000여 개, 리뷰 400여 건을 **SQLite + 벡터 임베딩** 형태로 구축하고, LangGraph 기반 파이프라인으로 **"자연어 질문 → 라우팅 → 슬롯 추출 → DB 검색 → 근거 기반 답변 생성"** 을 수행합니다.
+다이닝코드(diningcode.com)에서 수집한 식당 100곳, 메뉴 2,000여 개, 리뷰 400여 건을 **SQLite + 벡터 임베딩**으로 구축했으며, LangGraph 기반 파이프라인으로 **자연어 질문 → 라우팅 → 슬롯 추출 → DB 검색 → 근거 기반 답변 생성**을 수행합니다.
 
 ### 1.2 문제 정의
 기존 맛집 검색 서비스는 다음과 같은 한계가 있습니다.
@@ -58,10 +58,10 @@
 - **좁지만 깊은 데이터 부족**: 한 지역의 식당들을 카테고리/태그/리뷰/메뉴까지 교차로 볼 수 있는 서비스가 많지 않다.
 
 ### 1.3 목표
-- **데이터 기반 Grounded 추천**: LLM은 반드시 DB에 존재하는 식당·메뉴·리뷰만 근거로 답한다. (시스템 프롬프트에서 강제)
-- **의도에 따른 라우팅**: 분위기·조건 기반 질문(`embedding`)과 식당/메뉴/유저 직접 지정(`fixed`)을 자동 분기한다.
-- **근거 인용 답변**: 추천 사유를 실제 리뷰 문장에서 가져와 자연스러운 대화체로 제시한다.
-- **지도 연동 UX**: 답변에 등장한 식당을 Kakao Map 위에 마커로 즉시 시각화한다.
+- **데이터 기반 Grounded 추천**: LLM이 DB에 존재하는 식당·메뉴·리뷰만 근거로 응답하도록 시스템 프롬프트에서 제약합니다.
+- **의도 기반 라우팅**: 분위기·조건 기반 질의(`embedding`)와 식당/메뉴/유저 직접 지정 질의(`fixed`)를 자동 분기합니다.
+- **근거 인용 응답**: 추천 사유를 실제 리뷰 문장에서 인용하여 설명합니다.
+- **지도 연동 UX**: 응답에 포함된 식당을 Kakao Map 마커로 시각화합니다.
 
 ---
 
@@ -375,7 +375,91 @@ print(result["used_restaurant_list"][0]["name"])
 
 ---
 
-## 10. Limitations
+## 10. Evaluation Results
+
+본 프로젝트는 동일한 평가 프레임(`50 cases = fixed 20 + embedding 30`)으로 1차, 2차, 최종(3차) 실험을 순차 수행했습니다.
+
+### 10.1 평가 설정
+- **공통 골드셋 구조**: 총 50개 (`fixed` 20, `embedding` 30)
+- **평가 항목**: route / payload / target hit / answer / retrieval
+- **가중치**: route 30%, payload 25%, target 25%, answer 10%, retrieval 10%
+- **리포트 경로**:
+  - 1차: `src_test/llm_eval_report.json`
+  - 2차: `src_test2/llm_eval_report.json`
+  - 최종(3차): `src_test3/llm_eval_report.json`
+
+### 10.2 차수별 핵심 성능 비교
+
+| Stage | Report | Pass/Total | Pass Rate | Avg Score | Route | Payload | Target | Answer | Retrieval |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1차 | `src_test` | 23 / 50 | 46.0% | 0.8575 | 100.0% | 82.0% | 52.0% | 100.0% | 100.0% |
+| 2차 | `src_test2` | 39 / 50 | 78.0% | 0.9625 | 100.0% | 86.0% | 92.0% | 100.0% | 100.0% |
+| 최종(3차) | `src_test3` | 41 / 50 | 82.0% | 0.9725 | 100.0% | 86.0% | 96.0% | 100.0% | 100.0% |
+
+### 10.3 질의 유형별 비교 (`embedding` / `fixed`)
+
+| Stage | Embedding Pass Rate | Fixed Pass Rate |
+|---|---:|---:|
+| 1차 (`src_test`) | 13.3% (4/30) | 95.0% (19/20) |
+| 2차 (`src_test2`) | 63.3% (19/30) | 100.0% (20/20) |
+| 최종(3차, `src_test3`) | 73.3% (22/30) | 95.0% (19/20) |
+
+해석 기준으로 보면, 난이도가 높은 `embedding` 질의에서 성능이 단계적으로 개선되었고, `fixed` 질의는 전 차수에서 높은 정확도를 유지했습니다.
+
+### 10.4 차수별 실패 패턴과 보완 포인트
+
+#### 1차 (`src_test`)
+- **실패 규모**: 27건 실패
+- **주요 유형**:
+  - `target restaurant not retrieved`: 18건
+  - `payload miss`: 9건
+- **진단**:
+  - 라우팅과 답변 생성은 안정적이지만, `embedding` 경로에서 타깃 식당 미포함이 대량 발생했습니다.
+  - 슬롯 추출 결과가 의도와 미세하게 어긋나면(예: 태그 표현 편차) 검색 후보 교집합이 급격히 좁아지는 문제가 확인되었습니다.
+
+#### 2차 (`src_test2`)
+- **실패 규모**: 11건 실패
+- **주요 유형**:
+  - `payload miss`: 7건
+  - `target restaurant not retrieved`: 4건
+- **보완 효과**:
+  - 타깃 포함률이 52.0% → 92.0%로 크게 향상되었습니다.
+  - `fixed` 질의는 20/20으로 안정화되었습니다.
+- **남은 과제**:
+  - `embedding` 질의에서 payload 표준화(카테고리/태그 표현 정합) 이슈가 지속되었습니다.
+
+#### 최종(3차, `src_test3`)
+- **실패 규모**: 9건 실패
+- **주요 유형**:
+  - `payload miss`: 7건
+  - `target restaurant not retrieved`: 2건
+- **개선 요약**:
+  - target 정확도가 96.0%까지 상승했습니다.
+  - 실패 원인이 “검색 미검출”보다 “슬롯 추출 정밀도”로 집중되는 단계에 도달했습니다.
+
+### 10.5 무엇을 추가로 보완해야 하는가
+- **슬롯 정규화 강화**: `category/tag/menu/food/review` 슬롯에 대해 동의어 사전 및 표준화 규칙을 추가하여 payload miss를 완화해야 합니다.
+- **Embedding 검색 재랭킹 고도화**: 현재 교집합 중심 전략에 BM25/가중 합산 점수를 결합해 타깃 누락 가능성을 줄여야 합니다.
+- **Recall@K 중심 평가 지표 추가**: pass/fail 외에 retrieval 단계의 중간 품질을 추적할 수 있도록 정량 지표를 확장해야 합니다.
+- **회귀 테스트 자동화**: `embedding` 실패 케이스를 고정 회귀셋으로 운영하여 프롬프트/검색 로직 변경 시 성능 저하를 즉시 탐지해야 합니다.
+
+### 10.6 재현 방법
+프로젝트 루트에서 각 차수별 평가를 다음 명령으로 재현할 수 있습니다.
+
+```powershell
+python src_test\build_llm_goldset.py
+python src_test\evaluate_llm.py
+
+python src_test2\build_llm_goldset.py
+python src_test2\evaluate_llm.py
+
+python src_test3\build_llm_goldset.py
+python src_test3\evaluate_llm.py
+```
+
+---
+
+## 11. Limitations
 
 1. **지역 커버리지가 좁다**: 현재 DB는 신대방삼거리역 일대 100개 식당만 포함합니다. 다른 지역 질문에는 "데이터 기준으로 찾을 수 없다"로 응답합니다.
 2. **크롤링 시점 데이터 고정**: 영업시간·메뉴·가격·리뷰 등은 크롤링 시점 스냅샷이며 실시간 반영되지 않습니다.
@@ -387,7 +471,7 @@ print(result["used_restaurant_list"][0]["name"])
 8. **유사도 기반 검색의 한계**: 현재 검색 방식은 임베딩 기반 유사도 상위 N개를 기준으로 후보를 추출하기 때문에, 질문과 직접적으로 관련된 식당이 없는 경우에도 유사도가 상대적으로 높은 식당이 반환될 수 있습니다. 이로 인해 사용자의 의도와 맞지 않는 추천 결과가 포함될 가능성이 있습니다.
 ---
 
-## 11. Future Work
+## 12. Future Work
 
 - [ ] **지역 확장**: 크롤러를 파라미터화하여 N개 역/동 단위로 DB 자동 빌드
 - [ ] **벡터 DB 이관**: `Chroma` / `FAISS` 기반 인덱스 (`scripts/build_index.py`)
@@ -400,7 +484,7 @@ print(result["used_restaurant_list"][0]["name"])
 - [ ] **모바일 레이아웃 대응**: Streamlit 레이아웃을 반응형으로 개선
 - [ ] **CI / 린팅**: `ruff`, `mypy`, GitHub Actions 도입
 ---
-## 12. Service Expansion & Business Model
+## 13. Service Expansion & Business Model
 
 - **위치 기반 확장**: 신대방삼거리 중심의 단일 지역에서 사용자 위치 기반으로 다지역 확장하여 하이퍼로컬 추천 범위를 확장
 
@@ -415,16 +499,3 @@ print(result["used_restaurant_list"][0]["name"])
 - **추천 대상 확장**: 식당 중심 추천에서 카페, 술집, 문화시설 등으로 확장하여 로컬 라이프 전반을 아우르는 추천 플랫폼으로 발전
 
 ---
-
-## 13. License
-
-This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
-
-Copyright (c) 2026 SKN26-3rd-3rd
-
----
-
-### 팀
-**SKN26 3기 · 3조 · 3rd Project**
-
-> ⚠️ 본 레포는 교육 목적의 프로젝트이며, 크롤링 데이터의 저작권은 원 출처(diningcode.com)에 있습니다. 상업적 사용 시 원 데이터 제공자의 정책을 반드시 확인해 주세요.
